@@ -161,9 +161,13 @@ fn init_logger(st: &SystemTable<Boot>) -> (PhysAddr, FrameBufferInfo) {
                     let res = m.info().resolution();
                     res.1 >= height && res.0 >= width
                 })
-                .last(),
-            (Some(height), None) => modes.filter(|m| m.info().resolution().1 >= height).last(),
-            (None, Some(width)) => modes.filter(|m| m.info().resolution().0 >= width).last(),
+                .min_by_key(|m| m.info().resolution()),
+            (Some(height), None) => modes
+                .filter(|m| m.info().resolution().1 >= height)
+                .min_by_key(|m| m.info().resolution().1),
+            (None, Some(width)) => modes
+                .filter(|m| m.info().resolution().0 >= width)
+                .min_by_key(|m| m.info().resolution().0),
             _ => None,
         }
     };
