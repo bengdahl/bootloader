@@ -9,7 +9,7 @@ fn main() {
 #[cfg(feature = "binary")]
 mod binary {
     use quote::quote;
-    use std::convert::TryInto;
+    use std::{convert::TryInto, path::PathBuf};
 
     pub fn main() {
         use llvm_tools_build as llvm_tools;
@@ -17,7 +17,7 @@ mod binary {
             env,
             fs::{self, File},
             io::Write,
-            path::{Path, PathBuf},
+            path::Path,
             process::{self, Command},
         };
         use toml::Value;
@@ -302,7 +302,7 @@ mod binary {
                 /// Module containing the user-supplied configuration.
                 /// Public so that `bin/uefi.rs` can read framebuffer configuration.
                 pub mod parsed_config {
-                    use crate::config::Config;
+                    use crate::config::{Config, ModuleEntry};
                     /// The parsed configuration given by the user.
                     pub const CONFIG: Config = #config_stream;
                 }
@@ -364,6 +364,15 @@ mod binary {
         pub framebuffer_address: Option<AlignedAddress>,
         pub minimum_framebuffer_height: Option<usize>,
         pub minimum_framebuffer_width: Option<usize>,
+        #[serde(default)]
+        pub modules: Vec<ModuleEntry>,
+    }
+
+    #[derive(Debug, Clone, serde::Deserialize)]
+    #[serde(rename_all = "kebab-case", deny_unknown_fields)]
+    struct ModuleEntry {
+        pub name: String,
+        pub path: PathBuf,
     }
 
     /// Convert to tokens suitable for initializing the `Config` struct.
@@ -384,6 +393,7 @@ mod binary {
             let framebuffer_address = optional(self.framebuffer_address);
             let minimum_framebuffer_height = optional(self.minimum_framebuffer_height);
             let minimum_framebuffer_width = optional(self.minimum_framebuffer_width);
+            let modules = &self.modules[..];
 
             tokens.extend(quote! { Config {
                 map_physical_memory: #map_physical_memory,
@@ -396,8 +406,21 @@ mod binary {
                 boot_info_address: #boot_info_address,
                 framebuffer_address: #framebuffer_address,
                 minimum_framebuffer_height: #minimum_framebuffer_height,
-                minimum_framebuffer_width: #minimum_framebuffer_width
+                minimum_framebuffer_width: #minimum_framebuffer_width,
+                modules: &[#(#modules),*],
             }});
+        }
+    }
+
+    impl quote::ToTokens for ModuleEntry {
+        fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+            let name = self.name.as_str();
+            let path = self.path.to_str().unwrap();
+
+            tokens.extend(quote! { ModuleEntry {
+                name: #name,
+                path: #path,
+            }})
         }
     }
 

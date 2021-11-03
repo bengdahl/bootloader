@@ -87,4 +87,15 @@ pub struct Config {
     /// `minimum_framebuffer_width` is supplied, and using the last available mode that
     /// fits them if 1 or more is set.
     pub minimum_framebuffer_width: Option<usize>,
+    /// Modules to be linked to the image and loaded by the bootloader.
+    pub modules: &'static [ModuleEntry],
+}
+
+#[derive(Debug)]
+/// Describes a module to be used by the kernel.
+pub struct ModuleEntry {
+    /// Name the module will use at runtime.
+    pub name: &'static str,
+    /// Path to the module file relative to the Cargo.toml file.
+    pub path: &'static str,
 }
