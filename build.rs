@@ -332,13 +332,16 @@ mod binary {
         ))
         .expect("writing config failed");
 
+        let kernel_manifest = PathBuf::from(env::var("KERNEL_MANIFEST").unwrap());
+        let kernel_manifest_dir = kernel_manifest.parent().unwrap();
+
         // Write module information
         let module_config = if let Some(modules) = config.map(|c| c.modules) {
             let modules_json = modules
                 .iter()
                 .map(|module| {
                     json::object! {
-                        path: module.path.display().to_string(),
+                        path: kernel_manifest_dir.join(&module.path).display().to_string(),
                         name: module.name.clone(),
                     }
                 })

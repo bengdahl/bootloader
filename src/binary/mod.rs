@@ -1,6 +1,6 @@
 use crate::{
     binary::legacy_memory_region::{LegacyFrameAllocator, LegacyMemoryRegion},
-    boot_info::{BootInfo, FrameBuffer, FrameBufferInfo, MemoryRegion, TlsTemplate},
+    boot_info::{BootInfo, FrameBuffer, FrameBufferInfo, MemoryRegion, Modules, TlsTemplate},
 };
 use core::{
     mem::{self, MaybeUninit},
@@ -78,6 +78,7 @@ pub fn load_and_switch_to_kernel<I, D>(
     mut frame_allocator: LegacyFrameAllocator<I, D>,
     mut page_tables: PageTables,
     system_info: SystemInfo,
+    modules: Modules,
 ) -> !
 where
     I: ExactSizeIterator<Item = D> + Clone,
@@ -95,6 +96,7 @@ where
         &mut page_tables,
         &mut mappings,
         system_info,
+        modules,
     );
     switch_to_kernel(page_tables, mappings, boot_info);
 }
@@ -300,6 +302,7 @@ pub fn create_boot_info<I, D>(
     page_tables: &mut PageTables,
     mappings: &mut Mappings,
     system_info: SystemInfo,
+    modules: Modules,
 ) -> &'static mut BootInfo
 where
     I: ExactSizeIterator<Item = D> + Clone,
@@ -376,6 +379,7 @@ where
         recursive_index: mappings.recursive_index.map(Into::into).into(),
         rsdp_addr: system_info.rsdp_addr.map(|addr| addr.as_u64()).into(),
         tls_template: mappings.tls_template.into(),
+        modules,
     });
 
     boot_info

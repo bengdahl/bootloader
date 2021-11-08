@@ -1,4 +1,7 @@
-use core::{ops, slice};
+use core::{
+    ops::{self, Deref, DerefMut},
+    slice,
+};
 
 /// This structure represents the information that the bootloader passes to the kernel.
 ///
@@ -59,6 +62,8 @@ pub struct BootInfo {
     pub rsdp_addr: Optional<u64>,
     /// The thread local storage (TLS) template of the kernel executable, if present.
     pub tls_template: Optional<TlsTemplate>,
+    /// Locations and names of all loaded modules
+    pub modules: Modules,
 }
 
 /// FFI-safe slice of [`MemoryRegion`] structs, semantically equivalent to
@@ -302,6 +307,60 @@ impl<T> From<Optional<T>> for Option<T> {
             Optional::None => None,
         }
     }
+}
+
+/// An FFI-safe slice of `Module`s. Implements `Deref<Target = [Module]>`
+#[repr(C)]
+#[derive(Debug)]
+pub struct Modules {
+    pub(crate) ptr: *mut Module,
+    pub(crate) len: usize,
+}
+
+impl<'a> From<&mut Modules> for &'a mut [Module] {
+    fn from(v: &mut Modules) -> Self {
+        unsafe { core::slice::from_raw_parts_mut(v.ptr, v.len) }
+    }
+}
+
+impl<'a> From<&Modules> for &'a [Module] {
+    fn from(v: &Modules) -> Self {
+        unsafe { core::slice::from_raw_parts(v.ptr, v.len) }
+    }
+}
+
+impl From<&'static mut [Module]> for Modules {
+    fn from(v: &'static mut [Module]) -> Self {
+        Modules {
+            ptr: v.as_mut_ptr(),
+            len: v.len(),
+        }
+    }
+}
+
+impl Deref for Modules {
+    type Target = [Module];
+    fn deref(&self) -> &Self::Target {
+        self.into()
+    }
+}
+
+impl DerefMut for Modules {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.into()
+    }
+}
+
+/// Contains the name and pointer to a bootloader module.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Module {
+    /// Name of the module. This is the same name as specified in `package.metadata.bootloader.modules` in the kernel's `Cargo.toml`.
+    pub name: &'static str,
+    /// Physical address of the module in memory.
+    pub phys_addr: u64,
+    /// Length of the module in bytes.
+    pub len: usize,
 }
 
 /// Check that bootinfo is FFI-safe

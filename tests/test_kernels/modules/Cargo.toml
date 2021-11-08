@@ -1,0 +1,19 @@
+[package]
+name = "test_kernel_modules"
+version = "0.1.0"
+authors = ["Philipp Oppermann <dev@phil-opp.com>"]
+edition = "2018"
+
+[dependencies]
+bootloader = { path = "../../.." }
+x86_64 = { version = "0.13.2", default-features = false, features = [
+    "instructions",
+    "inline_asm",
+] }
+uart_16550 = "0.2.10"
+
+[package.metadata.bootloader]
+modules = [
+    { path = "modules/foo", name = "foo" },
+    { path = "modules/hello_world.txt", name = "hello_world" },
+]

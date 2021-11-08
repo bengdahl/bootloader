@@ -3,3 +3,7 @@ runner = "cargo run -p runner"
 
 [alias]
 builder = "run --bin builder --features builder --quiet --"
+
+[env]
+KERNEL = "target/x86_64-default_settings/debug/basic_boot"
+KERNEL_MANIFEST = "tests/test_kernels/default_settings/Cargo.toml"

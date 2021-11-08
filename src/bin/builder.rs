@@ -155,7 +155,7 @@ fn main() -> anyhow::Result<()> {
             })?;
 
         // Get module information
-        let out_dir = dbg!(output
+        let out_dir = output
             .lines()
             .find_map(|message| {
                 let message = json::parse(message).unwrap();
@@ -167,7 +167,7 @@ fn main() -> anyhow::Result<()> {
                     None
                 }
             })
-            .unwrap());
+            .unwrap();
         let module_json_path = PathBuf::from(out_dir).join("module_config.json");
         let mut module_json_str = String::new();
         File::open(module_json_path)
@@ -319,7 +319,10 @@ fn create_uefi_disk_image(
             let path = String::from("efi/boot/") + module.name;
             let mut file = root_dir.create_file(&path)?;
             file.truncate()?;
-            io::copy(&mut fs::File::open(module.path)?, &mut file)?;
+            io::copy(
+                &mut fs::File::open(module.path).context("Failed to read module file")?,
+                &mut file,
+            )?;
         }
 
         fat_path

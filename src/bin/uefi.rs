@@ -3,6 +3,7 @@
 #![feature(abi_efiapi)]
 #![feature(asm)]
 #![feature(maybe_uninit_extra)]
+#![feature(maybe_uninit_slice)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 // Defines the constants `KERNEL_BYTES` (array of `u8`) and `KERNEL_SIZE` (`usize`).
@@ -15,14 +16,21 @@ struct PageAligned<T>(T);
 
 use bootloader::{
     binary::{legacy_memory_region::LegacyFrameAllocator, parsed_config::CONFIG, SystemInfo},
-    boot_info::FrameBufferInfo,
+    boot_info::{FrameBufferInfo, Module},
 };
-use core::{mem, panic::PanicInfo, slice};
+use core::{
+    mem::{self, MaybeUninit},
+    panic::PanicInfo,
+    slice,
+};
 use uefi::{
     prelude::{entry, Boot, Handle, ResultExt, Status, SystemTable},
-    proto::console::gop::{GraphicsOutput, PixelFormat},
+    proto::{
+        console::gop::{GraphicsOutput, PixelFormat},
+        media::file::{Directory, File, FileAttribute, FileInfo, FileMode, FileType, RegularFile},
+    },
     table::boot::{MemoryDescriptor, MemoryType},
-    Completion,
+    Completion, Result,
 };
 use x86_64::{
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
@@ -44,6 +52,67 @@ fn efi_main(image: Handle, st: SystemTable<Boot>) -> Status {
             .log();
         unsafe { slice::from_raw_parts_mut(ptr, max_mmap_size) }
     };
+
+    let sfs = unsafe {
+        st.boot_services()
+            .locate_protocol::<uefi::proto::media::fs::SimpleFileSystem>()
+            .unwrap_success()
+            .get()
+            .as_mut()
+            .unwrap()
+    };
+
+    let mut root_dir = sfs.open_volume().unwrap_success();
+    let mut efi_dir: Directory = {
+        let efi = root_dir
+            .open("efi", FileMode::Read, FileAttribute::empty())
+            .unwrap_success();
+        match efi.into_type().unwrap_success() {
+            FileType::Dir(dir) => dir,
+            _ => panic!("/efi is not a directory"),
+        }
+    };
+    let mut boot_dir: Directory = {
+        let boot = efi_dir
+            .open("boot", FileMode::Read, FileAttribute::empty())
+            .unwrap_success();
+        match boot.into_type().unwrap_success() {
+            FileType::Dir(dir) => dir,
+            _ => panic!("/efi/boot is not a directory"),
+        }
+    };
+
+    let modules: &mut [MaybeUninit<Module>] = {
+        let n = CONFIG.modules.len();
+        if n == 0 {
+            &mut []
+        } else {
+            let ptr = st
+                .boot_services()
+                .allocate_pool(
+                    MemoryType::LOADER_DATA,
+                    core::mem::size_of::<MaybeUninit<Module>>() * n,
+                )
+                .unwrap_success();
+            unsafe { core::slice::from_raw_parts_mut(ptr.cast(), n) }
+        }
+    };
+
+    for (i, module) in CONFIG.modules.iter().enumerate() {
+        let name: &'static str = module.name;
+        let file = boot_dir
+            .open(name, FileMode::Read, FileAttribute::empty())
+            .unwrap_success();
+        if let FileType::Regular(mut file) = file.into_type().unwrap_success() {
+            let data = read_file(&st, &mut file).unwrap_success();
+            modules[i].write(Module {
+                name,
+                phys_addr: data.as_ptr() as u64,
+                len: data.len(),
+            });
+        }
+    }
+    let modules = unsafe { MaybeUninit::slice_assume_init_mut(modules) };
 
     log::trace!("exiting boot services");
     let (system_table, memory_map) = st
@@ -74,6 +143,7 @@ fn efi_main(image: Handle, st: SystemTable<Boot>) -> Status {
         frame_allocator,
         page_tables,
         system_info,
+        modules.into(),
     );
 }
 
@@ -199,6 +269,45 @@ fn init_logger(st: &SystemTable<Boot>) -> (PhysAddr, FrameBufferInfo) {
     bootloader::binary::init_logger(slice, info);
 
     (PhysAddr::new(framebuffer.as_mut_ptr() as u64), info)
+}
+
+fn file_info(st: &SystemTable<Boot>, file: &mut RegularFile) -> Result<&'static mut FileInfo> {
+    // run once using an empty buffer to allocate a correct-sized buffer
+    file.get_info::<FileInfo>(&mut []).or_else(|len| {
+        len.data()
+            .map(|len| {
+                st.boot_services()
+                    .allocate_pool(MemoryType::LOADER_DATA, len)
+                    .map(|bufptr| {
+                        bufptr.map(|bufptr| unsafe {
+                            core::slice::from_raw_parts_mut::<u8>(bufptr, len)
+                        })
+                    })
+                    .and_then(|buffer| {
+                        buffer
+                            .map(|buffer| file.get_info(buffer).discard_errdata())
+                            .log()
+                    })
+            })
+            .unwrap_or_else(|| Err(len.status().into()))
+    })
+}
+
+fn read_file(st: &SystemTable<Boot>, file: &mut RegularFile) -> Result<&'static [u8]> {
+    let file_info = file_info(st, file)?.log();
+    let len = file_info.file_size() as usize;
+    let bufptr = st
+        .boot_services()
+        .allocate_pool(MemoryType::LOADER_DATA, len)?
+        .log();
+    let buffer = unsafe { core::slice::from_raw_parts_mut(bufptr, len) };
+    file.read(buffer).discard_errdata()?.log();
+    assert!(
+        file.read(&mut [0u8; 8]).discard_errdata()?.log() == 0,
+        "file was not fully read"
+    );
+
+    Ok(Completion::new(Status::SUCCESS, &buffer[..]))
 }
 
 #[panic_handler]

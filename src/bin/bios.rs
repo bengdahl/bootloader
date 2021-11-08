@@ -9,7 +9,7 @@ compile_error!("The bootloader crate must be compiled for the `x86_64-bootloader
 
 use bootloader::{
     binary::SystemInfo,
-    boot_info::{FrameBufferInfo, PixelFormat},
+    boot_info::{FrameBufferInfo, Module, PixelFormat},
 };
 use core::panic::PanicInfo;
 use core::slice;
@@ -174,6 +174,10 @@ fn bootloader_main(
         frame_allocator,
         page_tables,
         system_info,
+        unsafe {
+            static mut EMPTY: [Module; 0] = [];
+            (&mut EMPTY[..]).into()
+        },
     );
 }
 
