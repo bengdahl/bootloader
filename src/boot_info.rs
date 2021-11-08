@@ -353,7 +353,7 @@ impl DerefMut for Modules {
 
 /// Contains the name and pointer to a bootloader module.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Module {
     /// Name of the module. This is the same name as specified in `package.metadata.bootloader.modules` in the kernel's `Cargo.toml`.
     pub name: [u8; 32],
@@ -361,6 +361,24 @@ pub struct Module {
     pub phys_addr: u64,
     /// Length of the module in bytes.
     pub len: usize,
+}
+
+impl core::fmt::Debug for Module {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Module")
+            .field(
+                "name",
+                &format_args!(
+                    r#"b"{}""#,
+                    core::str::from_utf8(&self.name)
+                        .unwrap()
+                        .trim_end_matches('\0')
+                ),
+            )
+            .field("phys_addr", &format_args!("{:#018X}", self.phys_addr))
+            .field("len", &self.len)
+            .finish()
+    }
 }
 
 /// Check that bootinfo is FFI-safe
