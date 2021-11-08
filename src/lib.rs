@@ -69,6 +69,7 @@ for all possible configuration options.
 #![feature(asm)]
 #![feature(maybe_uninit_extra)]
 #![feature(maybe_uninit_slice)]
+#![feature(maybe_uninit_write_slice)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 

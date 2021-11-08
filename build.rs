@@ -438,11 +438,22 @@ mod binary {
 
     impl quote::ToTokens for ModuleEntry {
         fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-            let name = self.name.as_str();
+            let name = {
+                let name = self.name.as_str();
+                assert!(name.is_ascii(), "Module name is not ASCII: {}", name);
+                assert!(
+                    name.as_bytes().len() <= 32,
+                    "Module name is more than 32 bytes long: {}",
+                    name
+                );
+                let mut buf = [0u8; 32];
+                buf[..name.len()].copy_from_slice(name.as_bytes());
+                buf
+            };
             let path = self.path.to_str().unwrap();
 
             tokens.extend(quote! { ModuleEntry {
-                name: #name,
+                name: [#(#name),*],
                 path: #path,
             }})
         }

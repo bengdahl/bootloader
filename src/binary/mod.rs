@@ -1,6 +1,8 @@
 use crate::{
     binary::legacy_memory_region::{LegacyFrameAllocator, LegacyMemoryRegion},
-    boot_info::{BootInfo, FrameBuffer, FrameBufferInfo, MemoryRegion, Modules, TlsTemplate},
+    boot_info::{
+        BootInfo, FrameBuffer, FrameBufferInfo, MemoryRegion, Module, Modules, TlsTemplate,
+    },
 };
 use core::{
     mem::{self, MaybeUninit},
@@ -302,7 +304,7 @@ pub fn create_boot_info<I, D>(
     page_tables: &mut PageTables,
     mappings: &mut Mappings,
     system_info: SystemInfo,
-    modules: Modules,
+    modules_slice: Modules,
 ) -> &'static mut BootInfo
 where
     I: ExactSizeIterator<Item = D> + Clone,
@@ -311,7 +313,7 @@ where
     log::info!("Allocate bootinfo");
 
     // allocate and map space for the boot info
-    let (boot_info, memory_regions) = {
+    let (boot_info, memory_regions, modules) = {
         let boot_info_addr = boot_info_location(&mut mappings.used_entries);
         let boot_info_end = boot_info_addr + mem::size_of::<BootInfo>();
         let memory_map_regions_addr =
@@ -319,9 +321,11 @@ where
         let regions = frame_allocator.len() + 1; // one region might be split into used/unused
         let memory_map_regions_end =
             memory_map_regions_addr + regions * mem::size_of::<MemoryRegion>();
+        let modules_addr = memory_map_regions_end.align_up(mem::align_of::<Module>() as u64);
+        let modules_end = modules_addr + modules_slice.len() * mem::size_of::<Module>();
 
         let start_page = Page::containing_address(boot_info_addr);
-        let end_page = Page::containing_address(memory_map_regions_end - 1u64);
+        let end_page = Page::containing_address(modules_end - 1u64);
         for page in Page::range_inclusive(start_page, end_page) {
             let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
             let frame = frame_allocator
@@ -350,13 +354,18 @@ where
             unsafe { &mut *boot_info_addr.as_mut_ptr() };
         let memory_regions: &'static mut [MaybeUninit<MemoryRegion>] =
             unsafe { slice::from_raw_parts_mut(memory_map_regions_addr.as_mut_ptr(), regions) };
-        (boot_info, memory_regions)
+        let modules: &'static mut [MaybeUninit<Module>] =
+            unsafe { slice::from_raw_parts_mut(modules_addr.as_mut_ptr(), modules_slice.len()) };
+        (boot_info, memory_regions, modules)
     };
 
     log::info!("Create Memory Map");
 
     // build memory map
     let memory_regions = frame_allocator.construct_memory_map(memory_regions);
+
+    // copy modules
+    let modules = MaybeUninit::write_slice_cloned(modules, &modules_slice);
 
     log::info!("Create bootinfo");
 
@@ -379,7 +388,7 @@ where
         recursive_index: mappings.recursive_index.map(Into::into).into(),
         rsdp_addr: system_info.rsdp_addr.map(|addr| addr.as_u64()).into(),
         tls_template: mappings.tls_template.into(),
-        modules,
+        modules: modules.into(),
     });
 
     boot_info

@@ -94,8 +94,9 @@ pub struct Config {
 #[derive(Debug)]
 /// Describes a module to be used by the kernel.
 pub struct ModuleEntry {
-    /// Name the module will use at runtime.
-    pub name: &'static str,
+    /// Name the module will use at runtime. If the given name is not ASCII or does not
+    /// fit in 32 bytes, the builder will raise an error.
+    pub name: [u8; 32],
     /// Path to the module file relative to the Cargo.toml file.
     pub path: &'static str,
 }

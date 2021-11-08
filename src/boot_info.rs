@@ -356,7 +356,7 @@ impl DerefMut for Modules {
 #[derive(Debug, Clone, Copy)]
 pub struct Module {
     /// Name of the module. This is the same name as specified in `package.metadata.bootloader.modules` in the kernel's `Cargo.toml`.
-    pub name: &'static str,
+    pub name: [u8; 32],
     /// Physical address of the module in memory.
     pub phys_addr: u64,
     /// Length of the module in bytes.

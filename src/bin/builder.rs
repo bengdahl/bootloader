@@ -182,8 +182,12 @@ fn main() -> anyhow::Result<()> {
         let modules = {
             let mut modules = vec![];
             for module in module_json {
-                let name =
-                    Box::leak(String::from(module["name"].as_str().unwrap()).into_boxed_str());
+                let name = {
+                    let mut buf = [0u8; 32];
+                    let name = module["name"].as_str().unwrap().as_bytes();
+                    buf[..name.len()].copy_from_slice(name);
+                    buf
+                };
                 let path =
                     Box::leak(String::from(module["path"].as_str().unwrap()).into_boxed_str());
                 modules.push(ModuleEntry { name, path });
@@ -316,7 +320,10 @@ fn create_uefi_disk_image(
 
         // copy modules to FAT filesystem
         for module in modules {
-            let path = String::from("efi/boot/") + module.name;
+            let path = String::from("efi/boot/")
+                + core::str::from_utf8(&module.name)
+                    .unwrap()
+                    .trim_end_matches('\0');
             let mut file = root_dir.create_file(&path)?;
             file.truncate()?;
             io::copy(

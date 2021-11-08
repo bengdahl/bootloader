@@ -99,9 +99,12 @@ fn efi_main(image: Handle, st: SystemTable<Boot>) -> Status {
     };
 
     for (i, module) in CONFIG.modules.iter().enumerate() {
-        let name: &'static str = module.name;
+        let name = module.name;
+        let name_str = core::str::from_utf8(&module.name)
+            .unwrap()
+            .trim_end_matches('\0');
         let file = boot_dir
-            .open(name, FileMode::Read, FileAttribute::empty())
+            .open(name_str, FileMode::Read, FileAttribute::empty())
             .unwrap_success();
         if let FileType::Regular(mut file) = file.into_type().unwrap_success() {
             let data = read_file(&st, &mut file).unwrap_success();
