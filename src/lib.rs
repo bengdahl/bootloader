@@ -73,7 +73,7 @@ for all possible configuration options.
 #![warn(missing_docs)]
 
 pub use crate::boot_info::BootInfo;
-pub use crate::config::Config;
+pub use crate::config::{Config, ModuleEntry};
 
 /// Configuration options for the bootloader.
 mod config;

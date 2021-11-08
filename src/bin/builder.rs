@@ -1,10 +1,11 @@
 use anyhow::{anyhow, bail, Context};
 use argh::FromArgs;
-use bootloader::disk_image::create_disk_image;
+use bootloader::{disk_image::create_disk_image, ModuleEntry};
 use std::{
     convert::TryFrom,
+    env,
     fs::{self, File},
-    io::{self, Seek},
+    io::{self, Read, Seek},
     path::{Path, PathBuf},
     process::Command,
     str::FromStr,
@@ -120,18 +121,18 @@ fn main() -> anyhow::Result<()> {
             return Err(anyhow!("{}", String::from_utf8_lossy(&output.stderr)));
         }
         let mut executables = Vec::new();
-        for line in String::from_utf8(output.stdout)
-            .context("build JSON output is not valid UTF-8")?
-            .lines()
-        {
+        let output =
+            String::from_utf8(output.stdout).context("build JSON output is not valid UTF-8")?;
+        for line in output.lines() {
             let mut artifact = json::parse(line).context("build JSON output is not valid JSON")?;
             if let Some(executable) = artifact["executable"].take_string() {
-                executables.push(PathBuf::from(executable));
+                let package_id = artifact["package_id"].take_string().unwrap();
+                executables.push((PathBuf::from(executable), package_id));
             }
         }
 
         assert_eq!(executables.len(), 1);
-        let executable_path = executables.pop().unwrap();
+        let (executable_path, executable_package_id) = executables.pop().unwrap();
 
         let executable_name = executable_path
             .file_stem()
@@ -153,9 +154,46 @@ fn main() -> anyhow::Result<()> {
                 )
             })?;
 
+        // Get module information
+        let out_dir = dbg!(output
+            .lines()
+            .find_map(|message| {
+                let message = json::parse(message).unwrap();
+                if message["reason"].as_str() == Some("build-script-executed")
+                    && message["package_id"].as_str() == Some(&executable_package_id)
+                {
+                    Some(String::from(message["out_dir"].as_str().unwrap()))
+                } else {
+                    None
+                }
+            })
+            .unwrap());
+        let module_json_path = PathBuf::from(out_dir).join("module_config.json");
+        let mut module_json_str = String::new();
+        File::open(module_json_path)
+            .expect("could not open module_config.json")
+            .read_to_string(&mut module_json_str)?;
+        let module_json = json::parse(&module_json_str).unwrap();
+        assert!(module_json.is_array());
+        let module_json = match module_json {
+            json::JsonValue::Array(arr) => arr,
+            _ => unreachable!(),
+        };
+        let modules = {
+            let mut modules = vec![];
+            for module in module_json {
+                let name =
+                    Box::leak(String::from(module["name"].as_str().unwrap()).into_boxed_str());
+                let path =
+                    Box::leak(String::from(module["path"].as_str().unwrap()).into_boxed_str());
+                modules.push(ModuleEntry { name, path });
+            }
+            modules
+        };
+
         if let Some(out_dir) = &args.out_dir {
             let efi_file = out_dir.join(format!("boot-{}-{}.efi", executable_name, kernel_name));
-            create_uefi_disk_image(&executable_path, &efi_file)
+            create_uefi_disk_image(&executable_path, &efi_file, &modules)
                 .context("failed to create UEFI disk image")?;
         }
     }
@@ -233,7 +271,11 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn create_uefi_disk_image(executable_path: &Path, efi_file: &Path) -> anyhow::Result<()> {
+fn create_uefi_disk_image(
+    executable_path: &Path,
+    efi_file: &Path,
+    modules: &[ModuleEntry],
+) -> anyhow::Result<()> {
     fs::copy(&executable_path, &efi_file).context("failed to copy efi file to out dir")?;
 
     let efi_size = fs::metadata(&efi_file)
@@ -271,6 +313,14 @@ fn create_uefi_disk_image(executable_path: &Path, efi_file: &Path) -> anyhow::Re
         let mut bootx64 = root_dir.create_file("efi/boot/bootx64.efi")?;
         bootx64.truncate()?;
         io::copy(&mut fs::File::open(&executable_path)?, &mut bootx64)?;
+
+        // copy modules to FAT filesystem
+        for module in modules {
+            let path = String::from("efi/boot/") + module.name;
+            let mut file = root_dir.create_file(&path)?;
+            file.truncate()?;
+            io::copy(&mut fs::File::open(module.path)?, &mut file)?;
+        }
 
         fat_path
     };

@@ -301,6 +301,7 @@ mod binary {
             quote::quote! {
                 /// Module containing the user-supplied configuration.
                 /// Public so that `bin/uefi.rs` can read framebuffer configuration.
+                #[allow(unused)]
                 pub mod parsed_config {
                     use crate::config::{Config, ModuleEntry};
                     /// The parsed configuration given by the user.
@@ -330,6 +331,26 @@ mod binary {
                 .unwrap_or(480)
         ))
         .expect("writing config failed");
+
+        // Write module information
+        let module_config = if let Some(modules) = config.map(|c| c.modules) {
+            let modules_json = modules
+                .iter()
+                .map(|module| {
+                    json::object! {
+                        path: module.path.display().to_string(),
+                        name: module.name.clone(),
+                    }
+                })
+                .collect::<json::Array>();
+            json::stringify(json::JsonValue::Array(modules_json))
+        } else {
+            "[]".into()
+        };
+        let module_json_path = out_dir.join("module_config.json");
+        let mut file = File::create(module_json_path).expect("failed to create module config file");
+        file.write_all(module_config.as_bytes())
+            .expect("writing module_config.json failed");
 
         println!("cargo:rerun-if-env-changed=KERNEL");
         println!("cargo:rerun-if-env-changed=KERNEL_MANIFEST");
