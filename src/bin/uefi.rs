@@ -22,6 +22,7 @@ use core::{
     mem::{self, MaybeUninit},
     panic::PanicInfo,
     slice,
+    arch::asm
 };
 use uefi::{
     prelude::{entry, Boot, Handle, ResultExt, Status, SystemTable},
