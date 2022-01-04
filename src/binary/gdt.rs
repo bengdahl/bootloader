@@ -24,9 +24,10 @@ pub fn create_and_load(frame: PhysFrame) {
 
     gdt.load();
     unsafe {
-        segmentation::set_cs(code_selector);
-        segmentation::load_ds(data_selector);
-        segmentation::load_es(data_selector);
-        segmentation::load_ss(data_selector);
+        use segmentation::Segment;
+        segmentation::CS::set_reg(code_selector);
+        segmentation::DS::set_reg(data_selector);
+        segmentation::ES::set_reg(data_selector);
+        segmentation::SS::set_reg(data_selector);
     }
 }
